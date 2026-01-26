@@ -5,10 +5,16 @@ VERDE='\033[0;32m'
 VERMELHO='\033[0;31m'
 NC='\033[0m' # Sem cor
 
-TOTAL_APPS=12
+TOTAL_APPS=13
 SUCESSO=0
 
-# URL do AnyDesk no seu repositório público
+# --- CONFIGURAÇÕES WAZUH ---
+WAZUH_PACKAGE_URL="https://packages.wazuh.com/4.x/apt/pool/main/w/wazuh-agent/wazuh-agent_4.12.0-1_amd64.deb"
+WAZUH_MANAGER_DOMAIN="wazuh-agents.nomadinternal.com"
+WAZUH_MANAGER_IP="172.11.2.179"
+WAZUH_AGENT_GROUP="LNX_EndUsers"
+
+# --- CONFIGURAÇÕES GITHUB ---
 URL_ANYDESK="https://raw.githubusercontent.com/fernandoribeiro-nomad/install/main/AnyDesk_Custom_Client.deb"
 
 # Garante que o script rode como root
@@ -53,8 +59,8 @@ rm /tmp/chrome.deb
 echo -e "${VERDE}done${NC}"
 ((SUCESSO++))
 
-# 5. DOWNLOAD DOS ARQUIVOS LOCAIS (ANYDESK)
-echo -n "5. Baixando instalador AnyDesk Custom: "
+# 5. DOWNLOAD ANYDESK CUSTOM
+echo -n "5. Baixando AnyDesk Custom: "
 wget -q "$URL_ANYDESK" -O /tmp/anydesk.deb
 if [ -f "/tmp/anydesk.deb" ]; then
     echo -e "${VERDE}done${NC}"
@@ -63,7 +69,7 @@ else
     echo -e "${VERMELHO}fail${NC}"
 fi
 
-# 6. INSTALAÇÃO DO ANYDESK
+# 6. INSTALAÇÃO ANYDESK CUSTOM
 echo -n "6. Instalando AnyDesk Custom: "
 if [ -f "/tmp/anydesk.deb" ]; then
     apt-get install -y /tmp/anydesk.deb > /dev/null 2>&1
@@ -71,7 +77,7 @@ if [ -f "/tmp/anydesk.deb" ]; then
     ((SUCESSO++))
     rm /tmp/anydesk.deb
 else
-    echo -e "${VERMELHO}fail (arquivo não encontrado)${NC}"
+    echo -e "${VERMELHO}fail${NC}"
 fi
 
 # 7. JUMPCLOUD
@@ -115,8 +121,45 @@ apt-get install -y openvpn3 > /dev/null 2>&1
 echo -e "${VERDE}done${NC}"
 ((SUCESSO++))
 
-# 12. CORREÇÕES GDM3 (Wayland / Login)
-echo -n "12. Corrigindo Wayland/Login: "
+# 12. WAZUH AGENT (Instalação, Update e Sync)
+echo -n "12. Instalando/Configurando Wazuh: "
+WAZUH_PKG_NAME=$(basename "$WAZUH_PACKAGE_URL")
+WAZUH_ERR=0
+
+# Instalação ou Update
+if ! dpkg -l | grep -q wazuh-agent; then
+    wget -q "$WAZUH_PACKAGE_URL" -O /tmp/"$WAZUH_PKG_NAME"
+    WAZUH_MANAGER="$WAZUH_MANAGER_DOMAIN" WAZUH_AGENT_GROUP="$WAZUH_AGENT_GROUP" dpkg -i /tmp/"$WAZUH_PKG_NAME" > /dev/null 2>&1 || WAZUH_ERR=1
+    systemctl enable wazuh-agent > /dev/null 2>&1
+    systemctl start wazuh-agent > /dev/null 2>&1
+else
+    INSTALLED_VER=$(dpkg -l wazuh-agent | grep wazuh-agent | awk '{print $3}')
+    REPO_VER=$(echo "$WAZUH_PACKAGE_URL" | grep -oP 'wazuh-agent_\K[^_]+')
+    if [ "$INSTALLED_VER" != "$REPO_VER" ]; then
+        wget -q "$WAZUH_PACKAGE_URL" -O /tmp/"$WAZUH_PKG_NAME"
+        WAZUH_MANAGER="$WAZUH_MANAGER_DOMAIN" WAZUH_AGENT_GROUP="$WAZUH_AGENT_GROUP" dpkg -i /tmp/"$WAZUH_PKG_NAME" > /dev/null 2>&1 || WAZUH_ERR=1
+        systemctl restart wazuh-agent > /dev/null 2>&1
+    fi
+fi
+rm -f /tmp/"$WAZUH_PKG_NAME"
+
+# Correção de Manager IP para Domínio
+if [ -f "/var/ossec/etc/ossec.conf" ]; then
+    if grep -q "<address>$WAZUH_MANAGER_IP</address>" /var/ossec/etc/ossec.conf; then
+        sed -i "s|<address>$WAZUH_MANAGER_IP</address>|<address>$WAZUH_MANAGER_DOMAIN</address>|g" /var/ossec/etc/ossec.conf
+        systemctl restart wazuh-agent > /dev/null 2>&1
+    fi
+fi
+
+if [ $WAZUH_ERR -eq 0 ]; then
+    echo -e "${VERDE}done${NC}"
+    ((SUCESSO++))
+else
+    echo -e "${VERMELHO}fail${NC}"
+fi
+
+# 13. CORREÇÕES GDM3 (Wayland / Login)
+echo -n "13. Corrigindo Wayland/Login: "
 GDM_CONFIG="/etc/gdm3/custom.conf"
 if [ -f "$GDM_CONFIG" ]; then
     sed -i 's/#WaylandEnable=false/WaylandEnable=false/g' "$GDM_CONFIG"
