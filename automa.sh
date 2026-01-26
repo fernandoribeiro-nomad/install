@@ -5,10 +5,10 @@ VERDE='\033[0;32m'
 VERMELHO='\033[0;31m'
 NC='\033[0m' # Sem cor
 
-TOTAL_APPS=11
+TOTAL_APPS=12
 SUCESSO=0
 
-# URL do AnyDesk no seu novo repositório público
+# URL do AnyDesk no seu repositório público
 URL_ANYDESK="https://raw.githubusercontent.com/fernandoribeiro-nomad/install/main/AnyDesk_Custom_Client.deb"
 
 # Garante que o script rode como root
@@ -53,32 +53,41 @@ rm /tmp/chrome.deb
 echo -e "${VERDE}done${NC}"
 ((SUCESSO++))
 
-# 5. ANYDESK (VIA GITHUB PÚBLICO)
-echo -n "5. Instalando AnyDesk Custom: "
+# 5. DOWNLOAD DOS ARQUIVOS LOCAIS (ANYDESK)
+echo -n "5. Baixando instalador AnyDesk Custom: "
 wget -q "$URL_ANYDESK" -O /tmp/anydesk.deb
+if [ -f "/tmp/anydesk.deb" ]; then
+    echo -e "${VERDE}done${NC}"
+    ((SUCESSO++))
+else
+    echo -e "${VERMELHO}fail${NC}"
+fi
+
+# 6. INSTALAÇÃO DO ANYDESK
+echo -n "6. Instalando AnyDesk Custom: "
 if [ -f "/tmp/anydesk.deb" ]; then
     apt-get install -y /tmp/anydesk.deb > /dev/null 2>&1
     echo -e "${VERDE}done${NC}"
     ((SUCESSO++))
     rm /tmp/anydesk.deb
 else
-    echo -e "${VERMELHO}fail (download)${NC}"
+    echo -e "${VERMELHO}fail (arquivo não encontrado)${NC}"
 fi
 
-# 6. JUMPCLOUD
-echo -n "6. Instalando JumpCloud: "
+# 7. JUMPCLOUD
+echo -n "7. Instalando JumpCloud: "
 curl --tlsv1.2 --silent --show-error --header 'x-connect-key: jcc_eyJwdWJsaWNLaWNrc3RhcnRVcmwiOiJodHRwczovL2tpY2tzdGFydC5qdW1wY2xvdWQuY29tIiwicHJpdmF0ZUtpY2tzdGFydFVybCI6Imh0dHBzOi8vcHJpdmF0ZS1raWNrc3RhcnQuanVtcGNsb3VkLmNvbSIsImNvbm5lY3RLZXkiOiJjYTU0ZmMwMzdkNzk4ZmIyZTExMDNjN2NiOGE0ODZhYzQ5NDFiYjY0In0g' https://kickstart.jumpcloud.com/Kickstart | bash > /dev/null 2>&1
 echo -e "${VERDE}done${NC}"
 ((SUCESSO++))
 
-# 7. SLACK
-echo -n "7. Instalando Slack: "
+# 8. SLACK
+echo -n "8. Instalando Slack: "
 snap install slack --classic > /dev/null 2>&1
 echo -e "${VERDE}done${NC}"
 ((SUCESSO++))
 
-# 8. CROWDSTRIKE FALCON
-echo -n "8. Instalando CrowdStrike: "
+# 9. CROWDSTRIKE FALCON
+echo -n "9. Instalando CrowdStrike: "
 export FALCON_CLIENT_ID="89c3c3b706a942ac95fa77b6ff1d8104"
 export FALCON_CLIENT_SECRET="Ubx5E3CfFNIL0T1Oksehjl279BZMXp8u6WSPHm4y"
 curl -L https://raw.githubusercontent.com/crowdstrike/falcon-scripts/main/bash/install/falcon-linux-install.sh 2>/dev/null | bash > /dev/null 2>&1
@@ -86,8 +95,8 @@ systemctl start falcon-sensor > /dev/null 2>&1
 echo -e "${VERDE}done${NC}"
 ((SUCESSO++))
 
-# 9. NETSKOPE
-echo -n "9. Configurando Netskope: "
+# 10. NETSKOPE
+echo -n "10. Configurando Netskope: "
 wget -q https://nmd-nsclient.s3.amazonaws.com/NSClient.run -O /tmp/NSClient.run
 chmod +x /tmp/NSClient.run
 sh /tmp/NSClient.run -i -t nomadtecnologia-br -d eu.goskope.com > /dev/null 2>&1
@@ -96,8 +105,8 @@ su -c "XDG_RUNTIME_DIR="/run/user/$IDUSER" DBUS_SESSION_BUS_ADDRESS="unix:path=$
 echo -e "${VERDE}done${NC}"
 ((SUCESSO++))
 
-# 10. OPEN VPN 3
-echo -n "10. Instalando OpenVPN 3: "
+# 11. OPEN VPN 3
+echo -n "11. Instalando OpenVPN 3: "
 mkdir -p /etc/apt/keyrings
 curl -sSfL https://swupdate.openvpn.net/repos/openvpn-repo-pkg-key.pub | gpg --dearmor --yes -o /etc/apt/keyrings/openvpn.gpg > /dev/null 2>&1
 echo "deb [signed-by=/etc/apt/keyrings/openvpn.gpg] https://swupdate.openvpn.net/community/openvpn3/repos $UBUNTU_CODENAME main" > /etc/apt/sources.list.d/openvpn3.list
@@ -106,8 +115,8 @@ apt-get install -y openvpn3 > /dev/null 2>&1
 echo -e "${VERDE}done${NC}"
 ((SUCESSO++))
 
-# 11. CORREÇÕES GDM3 (Wayland / Login)
-echo -n "11. Corrigindo Wayland/Login: "
+# 12. CORREÇÕES GDM3 (Wayland / Login)
+echo -n "12. Corrigindo Wayland/Login: "
 GDM_CONFIG="/etc/gdm3/custom.conf"
 if [ -f "$GDM_CONFIG" ]; then
     sed -i 's/#WaylandEnable=false/WaylandEnable=false/g' "$GDM_CONFIG"
