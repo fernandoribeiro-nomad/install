@@ -24,17 +24,16 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 ACTIVE_USER=$(logname 2>/dev/null || who | awk '{print $1}' | head -n 1)
-IDUSER=$(id -u "$ACTIVE_USER")
+IDUSER_GLOBAL=$(id -u "$ACTIVE_USER")
 UBUNTU_CODENAME=$(lsb_release -cs)
 
 echo "Iniciando Automação Nomad..."
-echo "Usuário: $ACTIVE_USER (UID: $IDUSER) | Versão: $UBUNTU_CODENAME"
+echo "Usuário: $ACTIVE_USER (UID: $IDUSER_GLOBAL) | Versão: $UBUNTU_CODENAME"
 echo "--------------------------------------------------"
 
 # 1. FERRAMENTAS ESSENCIAIS E DEPENDÊNCIAS DO NETSKOPE
 echo -n "1. Ferramentas essenciais e dependências: "
 apt-get update > /dev/null 2>&1
-# Adicionado dependências do Netskope junto com as ferramentas essenciais
 apt-get install -y \
     curl \
     wget \
@@ -117,24 +116,35 @@ systemctl start falcon-sensor > /dev/null 2>&1
 echo -e "${VERDE}done${NC}"
 ((SUCESSO++))
 
-# 10. NETSKOPE (Instalação e Ativação)
+# 10. NETSKOPE (Instalação integrada)
 echo -n "10. Configurando Netskope: "
-# Download
-wget -q https://nmd-nsclient.s3.amazonaws.com/NSClient.run -O /tmp/NSClient.run
-chmod +x /tmp/NSClient.run
-# Instalação (Dependências já instaladas no Passo 1)
-sh /tmp/NSClient.run -i -t nomadtecnologia-br -d eu.goskope.com > /dev/null 2>&1
-
-# Habilita o agente no contexto do usuário logado (Sintaxe corrigida)
-su - "$ACTIVE_USER" -c "export XDG_RUNTIME_DIR=/run/user/$IDUSER; export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$IDUSER/bus; systemctl --user --now enable stagentapp.service" > /dev/null 2>&1
-
-# Validação simples do processo
-sleep 2
-if pgrep -if "stAgentApp" > /dev/null; then
-    echo -e "${VERDE}done${NC}"
-    ((SUCESSO++))
+appTarget="netskope"
+if pgrep -if $appTarget > /dev/null
+then
+	echo -e "${VERDE}já ativo${NC}"
+	((SUCESSO++))
 else
-    echo -e "${VERMELHO}fail (processo não iniciou)${NC}"
+	# Faz download do script e armazena no tmp
+	wget -q https://nmd-nsclient.s3.amazonaws.com/NSClient.run -O /tmp/NSClient.run
+	# Adiciona permissao de execucao no script
+	chmod +x /tmp/NSClient.run
+	# Executa instalacao informando paramentros da organizacao
+	sh /tmp/NSClient.run -i -t nomadtecnologia-br -d eu.goskope.com > /dev/null 2>&1
+	# Coleta usuario logado
+	USER=$(users | awk '{print $1}')
+	# Coleta o uid do usario
+	IDUSER=`id $USER | awk -F'[=($]' '{print $2}'`
+	# Executa processo para habilitar agente
+	su -c "XDG_RUNTIME_DIR="/run/user/$IDUSER" DBUS_SESSION_BUS_ADDRESS="unix:path=${XDG_RUNTIME_DIR}/bus" systemctl --user --now enable stagentapp.service" $USER > /dev/null 2>&1
+	# Pausa
+	sleep 5
+	# Validação
+	if pgrep -if "stAgentApp" > /dev/null; then
+		echo -e "${VERDE}done${NC}"
+		((SUCESSO++))
+	else
+		echo -e "${VERMELHO}fail${NC}"
+	fi
 fi
 
 # 11. OPEN VPN 3
@@ -152,7 +162,6 @@ echo -n "12. Instalando/Configurando Wazuh: "
 WAZUH_PKG_NAME=$(basename "$WAZUH_PACKAGE_URL")
 WAZUH_ERR=0
 
-# Instalação ou Update
 if ! dpkg -l | grep -q wazuh-agent; then
     wget -q "$WAZUH_PACKAGE_URL" -O /tmp/"$WAZUH_PKG_NAME"
     WAZUH_MANAGER="$WAZUH_MANAGER_DOMAIN" WAZUH_AGENT_GROUP="$WAZUH_AGENT_GROUP" dpkg -i /tmp/"$WAZUH_PKG_NAME" > /dev/null 2>&1 || WAZUH_ERR=1
@@ -169,7 +178,6 @@ else
 fi
 rm -f /tmp/"$WAZUH_PKG_NAME"
 
-# Correção de Manager IP para Domínio
 if [ -f "/var/ossec/etc/ossec.conf" ]; then
     if grep -q "<address>$WAZUH_MANAGER_IP</address>" /var/ossec/etc/ossec.conf; then
         sed -i "s|<address>$WAZUH_MANAGER_IP</address>|<address>$WAZUH_MANAGER_DOMAIN</address>|g" /var/ossec/etc/ossec.conf
