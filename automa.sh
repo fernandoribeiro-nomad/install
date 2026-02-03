@@ -148,13 +148,12 @@ else
     ERROS_DETALHADOS+=("Passo 9: Script do CrowdStrike executado, mas o sensor não está ativo.")
 fi
 
-# 10. NETSKOPE (Versão Corrigida)
+# 10. NETSKOPE (Correção: Unit Not Found)
 echo -n "10. Configurando Netskope: "
 appTarget="netskope"
 
-# 1. Garante que o serviço do systemd para o usuário está carregado
-# (Isso resolve o problema de 'Failed to connect to bus')
-loginctl enable-linger $ACTIVE_USER > /dev/null 2>&1
+# 1. Garante que o usuário tem permissão de manter processos (Linger)
+loginctl enable-linger "$ACTIVE_USER" > /dev/null 2>&1
 
 if pgrep -if $appTarget > /dev/null; then
     echo -e "${VERDE}já ativo${NC}"
@@ -163,27 +162,52 @@ else
     # Download e Instalação
     wget -q https://nmd-nsclient.s3.amazonaws.com/NSClient.run -O /tmp/NSClient.run
     chmod +x /tmp/NSClient.run
+    # Executa o instalador como root
     sh /tmp/NSClient.run -i -t nomadtecnologia-br -d eu.goskope.com > /dev/null 2>&1
 
-    # Ativação do serviço no contexto do usuário
-    # Usamos o dbus-run-session como fallback caso o bus normal falhe
-    su - "$ACTIVE_USER" -c "export XDG_RUNTIME_DIR=/run/user/$IDUSER_GLOBAL; systemctl --user daemon-reload; systemctl --user --now enable stagentapp.service" > /tmp/netskope_error.log 2>&1
+    # Aguarda o instalador descompactar os arquivos no disco
+    sleep 3
 
-    # Pausa um pouco maior para inicialização
-    sleep 8
+    # 2. COMANDO DE ATIVAÇÃO RESILIENTE
+    # Explicando: Primeiro fazemos o daemon-reload para o systemd "achar" o novo arquivo .service
+    # Depois tentamos o enable.
+    su - "$ACTIVE_USER" -c "
+        export XDG_RUNTIME_DIR=/run/user/$IDUSER_GLOBAL;
+        export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$IDUSER_GLOBAL/bus;
+        systemctl --user daemon-reload;
+        systemctl --user --now enable stagentapp.service
+    " > /tmp/netskope_error.log 2>&1
 
-    # Validação mais ampla (procura por stAgent ou netskope)
-    if pgrep -if "stAgent" > /dev/null || pgrep -if "netskope" > /dev/null; then
+    # 3. TENTATIVA DE EMERGÊNCIA (Caso o comando acima falhe)
+    # Às vezes o arquivo é instalado em /opt/netskope/stagent/stagentapp.service 
+    # mas não é linkado para a pasta de user do systemd.
+    if [ $? -ne 0 ]; then
+        SERVICE_SOURCE="/opt/netskope/stagent/stagentapp.service"
+        USER_SERVICE_DIR="/home/$ACTIVE_USER/.config/systemd/user"
+        
+        if [ -f "$SERVICE_SOURCE" ]; then
+            mkdir -p "$USER_SERVICE_DIR"
+            ln -sf "$SERVICE_SOURCE" "$USER_SERVICE_DIR/stagentapp.service"
+            chown -R "$ACTIVE_USER:$ACTIVE_USER" "/home/$ACTIVE_USER/.config"
+            
+            # Tenta novamente após o link manual
+            su - "$ACTIVE_USER" -c "export XDG_RUNTIME_DIR=/run/user/$IDUSER_GLOBAL; systemctl --user daemon-reload; systemctl --user --now enable stagentapp.service" >> /tmp/netskope_error.log 2>&1
+        fi
+    fi
+
+    # Pausa para inicialização
+    sleep 5
+
+    # Validação final
+    if pgrep -if "stAgentApp" > /dev/null || pgrep -if "netskope" > /dev/null; then
         echo -e "${VERDE}done${NC}"
         ((SUCESSO++))
     else
         echo -e "${VERMELHO}fail${NC}"
-        # Captura o erro do log para o relatório final
-        MOTIVO_NETSKOPE=$(tail -n 1 /tmp/netskope_error.log)
-        ERROS_DETALHADOS+=("Passo 10: Netskope não iniciou. Erro: ${MOTIVO_NETSKOPE:-"Processo não encontrado"}")
+        MOTIVO=$(cat /tmp/netskope_error.log | tail -n 1)
+        ERROS_DETALHADOS+=("Passo 10: Netskope falhou. Erro: ${MOTIVO:-"Serviço não encontrado no systemd"}")
     fi
 fi
-
 # 11. OPEN VPN 3
 echo -n "11. Instalando OpenVPN 3: "
 mkdir -p /etc/apt/keyrings
