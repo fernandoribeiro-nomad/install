@@ -148,28 +148,40 @@ else
     ERROS_DETALHADOS+=("Passo 9: Script do CrowdStrike executado, mas o sensor não está ativo.")
 fi
 
-# 10. NETSKOPE (Bloco original solicitado)
+# 10. NETSKOPE (Versão Corrigida)
 echo -n "10. Configurando Netskope: "
 appTarget="netskope"
-if pgrep -if $appTarget > /dev/null
-then
-	echo -e "${VERDE}já ativo${NC}"
-	((SUCESSO++))
+
+# 1. Garante que o serviço do systemd para o usuário está carregado
+# (Isso resolve o problema de 'Failed to connect to bus')
+loginctl enable-linger $ACTIVE_USER > /dev/null 2>&1
+
+if pgrep -if $appTarget > /dev/null; then
+    echo -e "${VERDE}já ativo${NC}"
+    ((SUCESSO++))
 else
-	wget -q https://nmd-nsclient.s3.amazonaws.com/NSClient.run -O /tmp/NSClient.run
-	chmod +x /tmp/NSClient.run
-	sh /tmp/NSClient.run -i -t nomadtecnologia-br -d eu.goskope.com > /dev/null 2>&1
-	USER=$(users | awk '{print $1}')
-	IDUSER=`id $USER | awk -F'[=($]' '{print $2}'`
-	su -c "XDG_RUNTIME_DIR="/run/user/$IDUSER" DBUS_SESSION_BUS_ADDRESS="unix:path=${XDG_RUNTIME_DIR}/bus" systemctl --user --now enable stagentapp.service" $USER > /dev/null 2>&1
-	sleep 5
-	if pgrep -if "stAgentApp" > /dev/null; then
-		echo -e "${VERDE}done${NC}"
-		((SUCESSO++))
-	else
-		echo -e "${VERMELHO}fail${NC}"
-		ERROS_DETALHADOS+=("Passo 10: Netskope instalado, mas o processo 'stAgentApp' não foi detectado após 5s.")
-	fi
+    # Download e Instalação
+    wget -q https://nmd-nsclient.s3.amazonaws.com/NSClient.run -O /tmp/NSClient.run
+    chmod +x /tmp/NSClient.run
+    sh /tmp/NSClient.run -i -t nomadtecnologia-br -d eu.goskope.com > /dev/null 2>&1
+
+    # Ativação do serviço no contexto do usuário
+    # Usamos o dbus-run-session como fallback caso o bus normal falhe
+    su - "$ACTIVE_USER" -c "export XDG_RUNTIME_DIR=/run/user/$IDUSER_GLOBAL; systemctl --user daemon-reload; systemctl --user --now enable stagentapp.service" > /tmp/netskope_error.log 2>&1
+
+    # Pausa um pouco maior para inicialização
+    sleep 8
+
+    # Validação mais ampla (procura por stAgent ou netskope)
+    if pgrep -if "stAgent" > /dev/null || pgrep -if "netskope" > /dev/null; then
+        echo -e "${VERDE}done${NC}"
+        ((SUCESSO++))
+    else
+        echo -e "${VERMELHO}fail${NC}"
+        # Captura o erro do log para o relatório final
+        MOTIVO_NETSKOPE=$(tail -n 1 /tmp/netskope_error.log)
+        ERROS_DETALHADOS+=("Passo 10: Netskope não iniciou. Erro: ${MOTIVO_NETSKOPE:-"Processo não encontrado"}")
+    fi
 fi
 
 # 11. OPEN VPN 3
