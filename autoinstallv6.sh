@@ -133,19 +133,43 @@ fi
 
 # --- 9. NETSKOPE ---
 echo -n "9. Configurando Netskope: "
+
+# 1. Definir o usuário ativo (ajuste conforme seu ambiente se necessário)
+# Se o script rodar como root, precisamos descobrir quem é o usuário logado na interface gráfica
+if [ -z "$ACTIVE_USER" ]; then
+    ACTIVE_USER=$(who | awk '{print $1}' | head -n 1)
+fi
+
+# 2. Verificar se já está instalado para evitar reinstalação desnecessária
+if pgrep -if "netskope" > /dev/null; then
+    echo -e "${VERDE}já instalado${NC}"
+    exit 0
+fi
+
+# 3. Instalar dependências (O Netskope Linux exige interface gráfica/libs para o Web-Auth)
+apt-get update -qq
+apt-get install -y libgtk-3-0 libwebkit2gtk-4.0-37 libappindicator3-1 wget > /dev/null 2>&1
+
+# 4. Download e Instalação
 wget -q https://nmd-nsclient.s3.amazonaws.com/NSClient.run -O /tmp/NSClient.run
 chmod +x /tmp/NSClient.run
+# Executa a instalação silenciosa
 sh /tmp/NSClient.run -i -t nomadtecnologia-br -d eu.goskope.com > /dev/null 2>&1
 
-IDUSER=$(id -u $ACTIVE_USER)
-su -c "XDG_RUNTIME_DIR="/run/user/$IDUSER" DBUS_SESSION_BUS_ADDRESS="unix:path=${XDG_RUNTIME_DIR}/bus" systemctl --user --now enable stagentapp.service" $ACTIVE_USER > /dev/null 2>&1
+# 5. Configuração do Systemd User Service
+IDUSER=$(id -u "$ACTIVE_USER")
 
+# Comando essencial para habilitar o agente no contexto do usuário
+su -c "XDG_RUNTIME_DIR=/run/user/$IDUSER DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$IDUSER/bus systemctl --user --now enable stagentapp.service" "$ACTIVE_USER" > /dev/null 2>&1
+
+# 6. Validação final
 sleep 2
 if pgrep -if "stAgentApp" > /dev/null; then
     echo -e "${VERDE}done${NC}"
     ((SUCESSO++))
 else
-    echo -e "${VERMELHO}fail${NC}"
+    echo -e "${VERMELHO}falhou${NC}"
+    ((ERRO++))
 fi
 
 # --- 10. OPEN VPN 3 ---
