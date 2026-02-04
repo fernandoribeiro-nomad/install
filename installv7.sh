@@ -86,15 +86,19 @@ systemctl start falcon-sensor > /dev/null 2>&1
 echo -e "${VERDE}done${NC}"
 ((SUCESSO++))
 
-# 9. NETSKOPE
-echo -n "9. Configurando Netskope: "
-wget -q https://nmd-nsclient.s3.amazonaws.com/NSClient.run -O /tmp/NSClient.run
-chmod +x /tmp/NSClient.run
-sh /tmp/NSClient.run -i -t nomadtecnologia-br -d eu.goskope.com > /dev/null 2>&1
-IDUSER=$(id -u $ACTIVE_USER)
-su -c "XDG_RUNTIME_DIR="/run/user/$IDUSER" DBUS_SESSION_BUS_ADDRESS="unix:path=${XDG_RUNTIME_DIR}/bus" systemctl --user --now enable stagentapp.service" $ACTIVE_USER > /dev/null 2>&1
-echo -e "${VERDE}done${NC}"
-((SUCESSO++))
+# 9. NETSKOPE (Via Script Externo no GitHub)
+echo -n "10. Configurando Netskope (via Script Git): "
+# O comando abaixo baixa o script e o executa passando o $ACTIVE_USER como argumento
+curl -sL https://raw.githubusercontent.com/fernandoribeiro-nomad/install/refs/heads/main/netskope.sh | bash -s -- "$ACTIVE_USER" > /dev/null 2>&1
+
+# Verifica se o processo subiu para confirmar o "done"
+sleep 2
+if pgrep -if "stAgentApp" > /dev/null; then
+    echo -e "${VERDE}done${NC}"
+    ((SUCESSO++))
+else
+    echo -e "${VERMELHO}fail${NC}"
+fi
 
 # 10. OPEN VPN 3
 echo -n "10. Instalando OpenVPN 3: "
