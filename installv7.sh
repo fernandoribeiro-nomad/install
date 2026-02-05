@@ -5,11 +5,17 @@ VERDE='\033[0;32m'
 VERMELHO='\033[0;31m'
 NC='\033[0m' # Sem cor
 
-TOTAL_APPS=12
+TOTAL_APPS=13
 SUCESSO=0
 
 # URL do AnyDesk no seu repositório público
 URL_ANYDESK="https://raw.githubusercontent.com/fernandoribeiro-nomad/install/main/AnyDesk_Custom_Client.deb"
+
+# Configurações do Wazuh
+WAZUH_PACKAGE_URL="https://packages.wazuh.com/4.x/apt/pool/main/w/wazuh-agent/wazuh-agent_4.12.0-1_amd64.deb"
+WAZUH_MANAGER_DOMAIN="wazuh-agents.nomadinternal.com"
+WAZUH_MANAGER_IP="172.11.2.179"
+WAZUH_AGENT_GROUP="LNX_EndUsers"
 
 # Garante que o script rode como root
 if [ "$EUID" -ne 0 ]; then 
@@ -97,42 +103,16 @@ echo -e "${VERDE}done${NC}"
 
 # 10. NETSKOPE
 echo -n "10. Configurando Netskope: "
-
-# 1. Instalar dependências (Garantir que a biblioteca de vídeo está lá)
 apt-get update -qq
 apt-get install -y libgtk-3-0 libwebkit2gtk-4.0-37 libappindicator3-1 wget > /dev/null 2>&1
-
-# 2. Download
 wget -q https://nmd-nsclient.s3.amazonaws.com/NSClient.run -O /tmp/NSClient.run
 chmod +x /tmp/NSClient.run
-
-# 3. Identificar o usuário e o ambiente gráfico de forma robusta
-# Se ACTIVE_USER estiver vazio, tentamos pegar o primeiro usuário físico do sistema
-if [ -z "$ACTIVE_USER" ]; then
-    ACTIVE_USER=$(who | awk '{print $1}' | head -n 1)
-fi
 IDUSER=$(id -u $ACTIVE_USER)
-
-# 4. Executar a instalação PASSANDO as variáveis de ambiente de vídeo
-# Isso simula o seu comando manual "sudo sh..." mas injeta o acesso à tela
 export DISPLAY=:0
 export XAUTHORITY=/home/$ACTIVE_USER/.Xauthority
-
 sh /tmp/NSClient.run -i -t nomadtecnologia-br -d eu.goskope.com > /dev/null 2>&1
-
-# 5. Garantir que o serviço do usuário está ativo e forçar a abertura da tela
-sudo -u $ACTIVE_USER DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$IDUSER/bus" \
-    XDG_RUNTIME_DIR="/run/user/$IDUSER" \
-    DISPLAY=:0 \
-    XAUTHORITY=/home/$ACTIVE_USER/.Xauthority \
-    systemctl --user enable stagentapp.service > /dev/null 2>&1
-
-sudo -u $ACTIVE_USER DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$IDUSER/bus" \
-    XDG_RUNTIME_DIR="/run/user/$IDUSER" \
-    DISPLAY=:0 \
-    XAUTHORITY=/home/$ACTIVE_USER/.Xauthority \
-    systemctl --user restart stagentapp.service > /dev/null 2>&1
-
+sudo -u $ACTIVE_USER DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$IDUSER/bus" XDG_RUNTIME_DIR="/run/user/$IDUSER" DISPLAY=:0 XAUTHORITY=/home/$ACTIVE_USER/.Xauthority systemctl --user enable stagentapp.service > /dev/null 2>&1
+sudo -u $ACTIVE_USER DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$IDUSER/bus" XDG_RUNTIME_DIR="/run/user/$IDUSER" DISPLAY=:0 XAUTHORITY=/home/$ACTIVE_USER/.Xauthority systemctl --user restart stagentapp.service > /dev/null 2>&1
 echo -e "${VERDE}done${NC}"
 ((SUCESSO++))
 
@@ -157,6 +137,29 @@ if [ -f "$GDM_CONFIG" ]; then
     ((SUCESSO++))
 else
     echo -e "${VERMELHO}fail${NC}"
+fi
+
+# 13. WAZUH AGENT
+echo -n "13. Instalando Wazuh Agent: "
+wget -q "$WAZUH_PACKAGE_URL" -O /tmp/wazuh-agent.deb
+if [ -f "/tmp/wazuh-agent.deb" ]; then
+    # Instalação com variáveis de ambiente para configuração automática
+    WAZUH_MANAGER="$WAZUH_MANAGER_DOMAIN" WAZUH_AGENT_GROUP="$WAZUH_AGENT_GROUP" dpkg -i /tmp/wazuh-agent.deb > /dev/null 2>&1
+    
+    # Garante que o endereço no ossec.conf seja o domínio e não o IP (correção solicitada)
+    if [ -f "/var/ossec/etc/ossec.conf" ]; then
+        sed -i "s|<address>$WAZUH_MANAGER_IP</address>|<address>$WAZUH_MANAGER_DOMAIN</address>|g" /var/ossec/etc/ossec.conf
+    fi
+
+    systemctl daemon-reload > /dev/null 2>&1
+    systemctl enable wazuh-agent > /dev/null 2>&1
+    systemctl restart wazuh-agent > /dev/null 2>&1
+    
+    rm /tmp/wazuh-agent.deb
+    echo -e "${VERDE}done${NC}"
+    ((SUCESSO++))
+else
+    echo -e "${VERMELHO}fail (download)${NC}"
 fi
 
 echo "--------------------------------------------------"
