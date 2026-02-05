@@ -97,11 +97,33 @@ echo -e "${VERDE}done${NC}"
 
 # 10. NETSKOPE
 echo -n "10. Configurando Netskope: "
+
+# Passo 1: Instalar dependências que o Netskope exige para a interface gráfica
+# Sem o libwebkit2gtk, a tela de login nunca irá abrir.
+apt-get update -qq
+apt-get install -y libgtk-3-0 libwebkit2gtk-4.0-37 libappindicator3-1 wget > /dev/null 2>&1
+
+# Passo 2: Download e Instalação
 wget -q https://nmd-nsclient.s3.amazonaws.com/NSClient.run -O /tmp/NSClient.run
 chmod +x /tmp/NSClient.run
+# Executa a instalação silenciosa
 sh /tmp/NSClient.run -i -t nomadtecnologia-br -d eu.goskope.com > /dev/null 2>&1
+
+# Passo 3: Identificar o ID do usuário e preparar o ambiente gráfico
 IDUSER=$(id -u $ACTIVE_USER)
-su -c "XDG_RUNTIME_DIR="/run/user/$IDUSER" DBUS_SESSION_BUS_ADDRESS="unix:path=${XDG_RUNTIME_DIR}/bus" systemctl --user --now enable stagentapp.service" $ACTIVE_USER > /dev/null 2>&1
+
+# Passo 4: Habilitar e Iniciar o serviço do agente no contexto do usuário
+# Adicionamos o DISPLAY=:0 para que ele saiba que deve abrir na tela principal
+sudo -u $ACTIVE_USER DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$IDUSER/bus" \
+    XDG_RUNTIME_DIR="/run/user/$IDUSER" \
+    DISPLAY=:0 \
+    systemctl --user enable stagentapp.service > /dev/null 2>&1
+
+sudo -u $ACTIVE_USER DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$IDUSER/bus" \
+    XDG_RUNTIME_DIR="/run/user/$IDUSER" \
+    DISPLAY=:0 \
+    systemctl --user restart stagentapp.service > /dev/null 2>&1
+
 echo -e "${VERDE}done${NC}"
 ((SUCESSO++))
 
