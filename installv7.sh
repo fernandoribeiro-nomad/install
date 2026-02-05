@@ -98,39 +98,40 @@ echo -e "${VERDE}done${NC}"
 # 10. NETSKOPE
 echo -n "10. Configurando Netskope: "
 
-# Passo 1: Dependências - Adicionado libwebkit2gtk-4.1-0 para compatibilidade com Ubuntu 22.04+
+# 1. Instalar dependências (Garantir que a biblioteca de vídeo está lá)
 apt-get update -qq
-apt-get install -y libgtk-3-0 libwebkit2gtk-4.0-37 libwebkit2gtk-4.1-0 libappindicator3-1 wget > /dev/null 2>&1
+apt-get install -y libgtk-3-0 libwebkit2gtk-4.0-37 libappindicator3-1 wget > /dev/null 2>&1
 
-# Passo 2: Download e Instalação
+# 2. Download
 wget -q https://nmd-nsclient.s3.amazonaws.com/NSClient.run -O /tmp/NSClient.run
 chmod +x /tmp/NSClient.run
+
+# 3. Identificar o usuário e o ambiente gráfico de forma robusta
+# Se ACTIVE_USER estiver vazio, tentamos pegar o primeiro usuário físico do sistema
+if [ -z "$ACTIVE_USER" ]; then
+    ACTIVE_USER=$(who | awk '{print $1}' | head -n 1)
+fi
+IDUSER=$(id -u $ACTIVE_USER)
+
+# 4. Executar a instalação PASSANDO as variáveis de ambiente de vídeo
+# Isso simula o seu comando manual "sudo sh..." mas injeta o acesso à tela
+export DISPLAY=:0
+export XAUTHORITY=/home/$ACTIVE_USER/.Xauthority
+
 sh /tmp/NSClient.run -i -t nomadtecnologia-br -d eu.goskope.com > /dev/null 2>&1
 
-# Passo 3: Preparar ambiente para o usuário
-IDUSER=$(id -u $ACTIVE_USER)
-XAUTH="/home/$ACTIVE_USER/.Xauthority"
-
-# Passo 4: Habilitar e Iniciar garantindo acesso ao X11
-# O uso de XAUTHORITY é o que geralmente resolve a tela não aparecer
+# 5. Garantir que o serviço do usuário está ativo e forçar a abertura da tela
 sudo -u $ACTIVE_USER DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$IDUSER/bus" \
     XDG_RUNTIME_DIR="/run/user/$IDUSER" \
     DISPLAY=:0 \
-    XAUTHORITY=$XAUTH \
-    systemctl --user daemon-reload > /dev/null 2>&1
-
-sudo -u $ACTIVE_USER DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$IDUSER/bus" \
-    XDG_RUNTIME_DIR="/run/user/$IDUSER" \
-    DISPLAY=:0 \
-    XAUTHORITY=$XAUTH \
+    XAUTHORITY=/home/$ACTIVE_USER/.Xauthority \
     systemctl --user enable stagentapp.service > /dev/null 2>&1
 
-# Tenta abrir o App manualmente se o serviço não subir a tela
 sudo -u $ACTIVE_USER DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$IDUSER/bus" \
     XDG_RUNTIME_DIR="/run/user/$IDUSER" \
     DISPLAY=:0 \
-    XAUTHORITY=$XAUTH \
-    /opt/netskope/stagent/stAgentApp > /dev/null 2>&1 &
+    XAUTHORITY=/home/$ACTIVE_USER/.Xauthority \
+    systemctl --user restart stagentapp.service > /dev/null 2>&1
 
 echo -e "${VERDE}done${NC}"
 ((SUCESSO++))
