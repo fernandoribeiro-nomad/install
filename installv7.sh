@@ -5,7 +5,7 @@ VERDE='\033[0;32m'
 VERMELHO='\033[0;31m'
 NC='\033[0m' # Sem cor
 
-TOTAL_APPS=10
+TOTAL_APPS=11
 SUCESSO=0
 
 # Garante que o script rode como root
@@ -16,16 +16,17 @@ fi
 
 # Identifica o usuário real (quem deu sudo)
 ACTIVE_USER=$(logname 2>/dev/null || who | awk '{print $1}' | head -n 1)
+UBUNTU_CODENAME=$(lsb_release -cs)
 
 echo "Iniciando processo de instalação e configuração..."
-echo "Usuário detectado: $ACTIVE_USER"
+echo "Usuário detectado: $ACTIVE_USER | Versão: $UBUNTU_CODENAME"
 echo "--------------------------------------------------"
 
 # --- 1. FERRAMENTAS ESSENCIAIS ---
 echo -n "1. Instalando ferramentas essenciais (CURL/WGET): "
 rm -f /var/lib/dpkg/lock-frontend /var/lib/apt/lists/lock > /dev/null 2>&1
 apt-get update > /dev/null 2>&1
-apt-get install -y curl wget apt-transport-https gnupg2 > /dev/null 2>&1
+apt-get install -y curl wget apt-transport-https gnupg2 lsb-release > /dev/null 2>&1
 
 if command -v curl >/dev/null 2>&1; then
     echo -e "${VERDE}done${NC}"
@@ -47,9 +48,9 @@ else
 fi
 
 # --- 3. REMOÇÃO DO FIREFOX ---
-echo -n "3. Removendo Firefox: "
-apt-get purge -y firefox* > /dev/null 2>&1
+echo -n "3. Removendo Firefox (APT e SNAP): "
 snap remove firefox > /dev/null 2>&1
+apt-get purge -y firefox* > /dev/null 2>&1
 rm -rf /usr/lib/firefox /usr/lib/firefox-addons /etc/firefox > /dev/null 2>&1
 
 if ! command -v firefox >/dev/null 2>&1; then
@@ -76,33 +77,20 @@ else
     echo -e "${VERMELHO}fail${NC}"
 fi
 
-# --- 5. ANYDESK (Instalação Local via .tar.gz) ---
-echo -n "5. Instalando AnyDesk (Arquivo Local .tar.gz): "
-# Caminho ajustado para .tar.gz
-FILE_LOCAL="/home/$ACTIVE_USER/Documentos/AnyDesk_Custom_Client.tar.gz"
-DEST_DIR="/opt/anydesk-custom"
+# --- 5. ANYDESK (Instalação via .deb Local) ---
+echo -n "5. Instalando AnyDesk (.deb Local): "
+FILE_DEB="/home/$ACTIVE_USER/Documentos/AnyDesk_Custom_Client.deb"
 
-# Instala dependências necessárias
-apt-get install -y libpangocairo-1.0-0 libpango-1.0-0 libgtk-3-0 > /dev/null 2>&1
-
-if [ -f "$FILE_LOCAL" ]; then
-    mkdir -p $DEST_DIR
-    # Extrai usando -z para arquivos .gz
-    tar -xzf "$FILE_LOCAL" -C $DEST_DIR > /dev/null 2>&1
-    
-    # Procura o executável 'anydesk' dentro da pasta extraída (caso ele esteja em uma subpasta)
-    EXE_PATH=$(find $DEST_DIR -name "anydesk" -type f | head -n 1)
-    
-    if [ -n "$EXE_PATH" ]; then
-        chmod +x "$EXE_PATH"
-        ln -sf "$EXE_PATH" /usr/bin/anydesk
+if [ -f "$FILE_DEB" ]; then
+    apt-get install -y "$FILE_DEB" > /dev/null 2>&1
+    if [ $? -eq 0 ]; then
         echo -e "${VERDE}done${NC}"
         ((SUCESSO++))
     else
-        echo -e "${VERMELHO}fail (executável não encontrado no pacote)${NC}"
+        echo -e "${VERMELHO}fail (erro no deb)${NC}"
     fi
 else
-    echo -e "${VERMELHO}fail (arquivo não encontrado em Documentos)${NC}"
+    echo -e "${VERMELHO}fail (arquivo não encontrado)${NC}"
 fi
 
 # --- 6. JUMPCLOUD ---
@@ -145,34 +133,26 @@ fi
 
 # --- 9. NETSKOPE ---
 echo -n "9. Configurando Netskope: "
-appTarget="netskope"
+wget -q https://nmd-nsclient.s3.amazonaws.com/NSClient.run -O /tmp/NSClient.run
+chmod +x /tmp/NSClient.run
+sh /tmp/NSClient.run -i -t nomadtecnologia-br -d eu.goskope.com > /dev/null 2>&1
 
-if pgrep -if $appTarget > /dev/null; then
-    echo -e "${VERDE}done (já ativo)${NC}"
+IDUSER=$(id -u $ACTIVE_USER)
+su -c "XDG_RUNTIME_DIR="/run/user/$IDUSER" DBUS_SESSION_BUS_ADDRESS="unix:path=${XDG_RUNTIME_DIR}/bus" systemctl --user --now enable stagentapp.service" $ACTIVE_USER > /dev/null 2>&1
+
+sleep 2
+if pgrep -if "stAgentApp" > /dev/null; then
+    echo -e "${VERDE}done${NC}"
     ((SUCESSO++))
 else
-    apt-get install -y libgtk-3-0 libwebkit2gtk-4.0-37 libappindicator3-1 > /dev/null 2>&1
-    wget -q https://nmd-nsclient.s3.amazonaws.com/NSClient.run -O /tmp/NSClient.run > /dev/null 2>&1
-    chmod +x /tmp/NSClient.run
-    sh /tmp/NSClient.run -i -t nomadtecnologia-br -d eu.goskope.com > /dev/null 2>&1
-    
-    IDUSER=$(id -u $ACTIVE_USER)
-    su -c "XDG_RUNTIME_DIR="/run/user/$IDUSER" DBUS_SESSION_BUS_ADDRESS="unix:path=${XDG_RUNTIME_DIR}/bus" systemctl --user --now enable stagentapp.service" $ACTIVE_USER > /dev/null 2>&1
-    
-    sleep 5
-    if pgrep -if "stAgentApp" > /dev/null; then
-        echo -e "${VERDE}done${NC}"
-        ((SUCESSO++))
-    else
-        echo -e "${VERMELHO}fail${NC}"
-    fi
+    echo -e "${VERMELHO}fail${NC}"
 fi
 
 # --- 10. OPEN VPN 3 ---
 echo -n "10. Instalando OpenVPN 3: "
-wget -q https://swupdate.openvpn.net/repos/openvpn-repo-pkg-key.pub -O /tmp/openvpn-key.pub > /dev/null 2>&1
-apt-key add /tmp/openvpn-key.pub > /dev/null 2>&1
-wget -q -O /etc/apt/sources.list.d/openvpn3.list https://swupdate.openvpn.net/community/openvpn3/repos/openvpn3-jammy.list > /dev/null 2>&1
+mkdir -p /etc/apt/keyrings
+curl -sSfL https://swupdate.openvpn.net/repos/openvpn-repo-pkg-key.pub | gpg --dearmor --yes -o /etc/apt/keyrings/openvpn.gpg
+echo "deb [signed-by=/etc/apt/keyrings/openvpn.gpg] https://swupdate.openvpn.net/community/openvpn3/repos $UBUNTU_CODENAME main" > /etc/apt/sources.list.d/openvpn3.list
 apt-get update > /dev/null 2>&1
 apt-get install -y openvpn3 > /dev/null 2>&1
 
@@ -181,6 +161,27 @@ if command -v openvpn3 >/dev/null 2>&1; then
     ((SUCESSO++))
 else
     echo -e "${VERMELHO}fail${NC}"
+fi
+
+# --- 11. CORREÇÕES GDM3 (Wayland & Auto-Login para AnyDesk) ---
+echo -n "11. Corrigindo AnyDesk (GDM3 Config): "
+GDM_CONFIG="/etc/gdm3/custom.conf"
+
+if [ -f "$GDM_CONFIG" ]; then
+    # Descomenta WaylandEnable=false
+    sed -i 's/#WaylandEnable=false/WaylandEnable=false/g' "$GDM_CONFIG"
+    
+    # Altera AutomaticLoginEnable para true
+    sed -i 's/AutomaticLoginEnable=false/AutomaticLoginEnable=true/g' "$GDM_CONFIG"
+    
+    # Define o AutomaticLogin para o usuário ativo (remove o comentário se houver e substitui o nome)
+    # Procura a linha que contenha AutomaticLogin (com ou sem #) e substitui pelo usuário atual
+    sed -i "s/^#\?\(AutomaticLogin[[:space:]]*=[[:space:]]*\).*/\1$ACTIVE_USER/" "$GDM_CONFIG"
+    
+    echo -e "${VERDE}done${NC}"
+    ((SUCESSO++))
+else
+    echo -e "${VERMELHO}fail (arquivo não encontrado)${NC}"
 fi
 
 # --- RELATÓRIO FINAL ---
@@ -195,6 +196,7 @@ echo -e "Status: $SUCESSO de $TOTAL_APPS itens configurados."
 
 if [ $SUCESSO -eq $TOTAL_APPS ]; then
     echo -e "${VERDE}Configuração completa com sucesso!${NC}"
+    echo "Recomenda-se reiniciar o sistema para aplicar as mudanças do GDM3."
 else
     echo -e "${VERMELHO}Aviso: Algumas etapas falharam. Verifique manualmente.${NC}"
 fi
