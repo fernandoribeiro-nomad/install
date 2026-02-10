@@ -96,10 +96,19 @@ instalar_jumpcloud() {
 }
 
 instalar_slack() {
-    echo -e "${AMARELO}9. Instalando Slack...${NC}"
-    snap install slack --classic
+    echo -e "${AMARELO}9. Instalando Slack Desktop (.deb)...${NC}"
+    URL_SLACK="https://downloads.slack-edge.com/desktop-releases/linux/x64/4.47.69/slack-desktop-4.47.69-amd64.deb"
+    ARQ_SLACK="/tmp/slack-desktop.deb"
+
+    echo "➡️ Baixando Slack..."
+    wget -q --show-progress -O "$ARQ_SLACK" "$URL_SLACK"
+
+    echo "➡️ Instalando Slack..."
+    sudo dpkg -i "$ARQ_SLACK" || sudo apt --fix-broken install -y
+    
+    rm -f "$ARQ_SLACK"
     ((SUCESSO++))
-    echo -e "${VERDE}done${NC}"
+    echo -e "${VERDE}✅ Slack instalado com sucesso!${NC}"
 }
 
 instalar_crowdstrike() {
@@ -177,7 +186,7 @@ exibir_menu() {
     echo "6) Instalar AnyDesk Custom"
     echo "7) Correção Conexão AnyDesk (Wayland/Login)"
     echo "8) Instalar JumpCloud"
-    echo "9) Instalar Slack"
+    echo "9) Instalar Slack (via .deb)"
     echo "10) Instalar CrowdStrike"
     echo "11) VALIDAR Status CrowdStrike"
     echo "12) Instalar Netskope"
